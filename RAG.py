@@ -17,39 +17,38 @@ if "history" not in st.session_state:
 
 load_dotenv()
 
-model_type= 'ollama'
+model_type = 'ollama'
 
-# Initializing Gemini
-if(model_type == "ollama"):
+# Initialize the model
+if model_type == "ollama":
     model = Ollama(
-                    model=<ollama>,  # Provide your ollama model name here
-                    callback_manager=CallbackManager([StreamingStdOutCallbackHandler])
-                )
-    
-elif(model_type == "gemini"):
+        model="<ollama>",  # Provide your Ollama model name here
+        callback_manager=CallbackManager([StreamingStdOutCallbackHandler])
+    )
+elif model_type == "gemini":
     model = ChatGoogleGenerativeAI(
-                                model="gemini-pro", 
-                                temperature=0.1, 
-                                convert_system_message_to_human=True
-                            )
-    
+        model="gemini-pro",
+        temperature=0.1,
+        convert_system_message_to_human=True
+    )
+
 genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 # Vector Database
-persist_directory = <PERSIST_DIR> # Persist directory path
+persist_directory = "<PERSIST_DIR>"  # Persist directory path
 embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
 if not os.path.exists(persist_directory):
-    with st.spinner('🚀 Starting your bot.  This might take a while'):
+    with st.spinner('🚀 Starting your bot. This might take a while'):
         # Data Pre-processing
         pdf_loader = DirectoryLoader("./docs/", glob="./*.pdf", loader_cls=PyPDFLoader)
         text_loader = DirectoryLoader("./docs/", glob="./*.txt", loader_cls=TextLoader)
-        
+
         pdf_documents = pdf_loader.load()
         text_documents = text_loader.load()
-        
+
         splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=0)
-        
+
         pdf_context = "\n\n".join(str(p.page_content) for p in pdf_documents)
         text_context = "\n\n".join(str(p.page_content) for p in text_documents)
 
@@ -66,12 +65,12 @@ if not os.path.exists(persist_directory):
         print("Vector DB Creating Complete\n")
 
 elif os.path.exists(persist_directory):
-    vectordb = Chroma(persist_directory=persist_directory, 
-                  embedding_function=embeddings)
-    
+    vectordb = Chroma(persist_directory=persist_directory,
+                      embedding_function=embeddings)
+
     print("Vector DB Loaded\n")
 
-# Quering Model
+# Querying Model
 query_chain = RetrievalQA.from_chain_type(
     llm=model,
     retriever=vectordb.as_retriever()
@@ -81,12 +80,11 @@ for msg in st.session_state.history:
     with st.chat_message(msg['role']):
         st.markdown(msg['content'])
 
-
 prompt = st.chat_input("Say something")
 if prompt:
     st.session_state.history.append({
-        'role':'user',
-        'content':prompt
+        'role': 'user',
+        'content': prompt
     })
 
     with st.chat_message("user"):
@@ -96,8 +94,8 @@ if prompt:
         response = query_chain({"query": prompt})
 
         st.session_state.history.append({
-            'role' : 'Assistant',
-            'content' : response['result']
+            'role': 'Assistant',
+            'content': response['result']
         })
 
         with st.chat_message("Assistant"):
