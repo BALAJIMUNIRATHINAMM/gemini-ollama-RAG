@@ -22,7 +22,7 @@ model_type= 'ollama'
 # Initializing Gemini
 if(model_type == "ollama"):
     model = Ollama(
-                    model=<MODEL_NAME>,  # Provide your ollama model name here
+                    model=<ollama>,  # Provide your ollama model name here
                     callback_manager=CallbackManager([StreamingStdOutCallbackHandler])
                 )
     
