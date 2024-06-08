@@ -1,104 +1,63 @@
-from langchain.vectorstores import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_google_genai import ChatGoogleGenerativeAI
-import google.generativeai as genai
-from langchain.document_loaders import TextLoader, DirectoryLoader, PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.llms import Ollama
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.callbacks.manager import CallbackManager
-from langchain.chains import RetrievalQA
-from dotenv import load_dotenv
+# app.py
 import streamlit as st
-import os
+import pandas as pd
+from sentence_transformers import SentenceTransformer, util
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+# Models to be used
+models = {
+    "BAAI/bge-small-en": SentenceTransformer('BAAI/bge-small-en'),
+    "thenlper/gte-small": SentenceTransformer('thenlper/gte-small'),
+    "paraphrase-MiniLM-L6-v2": SentenceTransformer('paraphrase-MiniLM-L6-v2'),
+    "BAAI/bge-large-en": SentenceTransformer('BAAI/bge-large-en'),
+    "thenlper/gte-large": SentenceTransformer('thenlper/gte-large')
+}
 
-load_dotenv()
+# Streamlit App
+st.title('Text Similarity Search')
 
-model_type= 'ollama'
+# Upload input files
+uploaded_file_from = st.file_uploader("Choose an Input From file", type="xlsx")
+uploaded_file_to = st.file_uploader("Choose an Input To file", type="xlsx")
 
-# Initializing Gemini
-if(model_type == "ollama"):
-    model = Ollama(
-                    model=<MODEL_NAME>,  # Provide your ollama model name here
-                    callback_manager=CallbackManager([StreamingStdOutCallbackHandler])
-                )
-    
-elif(model_type == "gemini"):
-    model = ChatGoogleGenerativeAI(
-                                model="gemini-pro", 
-                                temperature=0.1, 
-                                convert_system_message_to_human=True
-                            )
-    
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+# Perform similarity search if files are uploaded
+if uploaded_file_from and uploaded_file_to:
+    df_from = pd.read_excel(uploaded_file_from)
+    df_to = pd.read_excel(uploaded_file_to)
 
-# Vector Database
-persist_directory = <PERSIST_DIR> # Persist directory path
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    if 'statement' in df_from.columns and 'highlights' in df_to.columns:
+        statements = df_from['statement'].tolist()
+        highlights = df_to['highlights'].tolist()
 
-if not os.path.exists(persist_directory):
-    with st.spinner('🚀 Starting your bot.  This might take a while'):
-        # Data Pre-processing
-        pdf_loader = DirectoryLoader("./docs/", glob="./*.pdf", loader_cls=PyPDFLoader)
-        text_loader = DirectoryLoader("./docs/", glob="./*.txt", loader_cls=TextLoader)
+        # Perform similarity search
+        top_k = 5
+        results = []
+
+        for model_name, model in models.items():
+            statement_embeddings = model.encode(statements, convert_to_tensor=True)
+            highlight_embeddings = model.encode(highlights, convert_to_tensor=True)
+
+            for idx, statement_embedding in enumerate(statement_embeddings):
+                similarities = util.pytorch_cos_sim(statement_embedding, highlight_embeddings)
+                top_k_results = similarities.topk(top_k)
+                for score, index in zip(top_k_results[0], top_k_results[1]):
+                    results.append({
+                        'statement': statements[idx],
+                        'highlight': highlights[index],
+                        'similarity_score': score.item(),
+                        'model': model_name
+                    })
+
+        results_df = pd.DataFrame(results)
         
-        pdf_documents = pdf_loader.load()
-        text_documents = text_loader.load()
+        st.write("Similarity Results")
+        st.dataframe(results_df)
         
-        splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=0)
-        
-        pdf_context = "\n\n".join(str(p.page_content) for p in pdf_documents)
-        text_context = "\n\n".join(str(p.page_content) for p in text_documents)
-
-        pdfs = splitter.split_text(pdf_context)
-        texts = splitter.split_text(text_context)
-
-        data = pdfs + texts
-
-        print("Data Processing Complete")
-
-        vectordb = Chroma.from_texts(data, embeddings, persist_directory=persist_directory)
-        vectordb.persist()
-
-        print("Vector DB Creating Complete\n")
-
-elif os.path.exists(persist_directory):
-    vectordb = Chroma(persist_directory=persist_directory, 
-                  embedding_function=embeddings)
-    
-    print("Vector DB Loaded\n")
-
-# Quering Model
-query_chain = RetrievalQA.from_chain_type(
-    llm=model,
-    retriever=vectordb.as_retriever()
-)
-
-for msg in st.session_state.history:
-    with st.chat_message(msg['role']):
-        st.markdown(msg['content'])
-
-
-prompt = st.chat_input("Say something")
-if prompt:
-    st.session_state.history.append({
-        'role':'user',
-        'content':prompt
-    })
-
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.spinner('💡Thinking'):
-        response = query_chain({"query": prompt})
-
-        st.session_state.history.append({
-            'role' : 'Assistant',
-            'content' : response['result']
-        })
-
-        with st.chat_message("Assistant"):
-            st.markdown(response['result'])
+        # Option to download the results as an Excel file
+        st.download_button(
+            label="Download results as Excel",
+            data=results_df.to_excel(index=False),
+            file_name='similarity_results.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    else:
+        st.error("Input files must contain 'statement' and 'highlights' columns.")
