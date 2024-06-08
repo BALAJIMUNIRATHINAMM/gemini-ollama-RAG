@@ -1,7 +1,4 @@
-langchain 
-chromadb
 streamlit
-google-generativeai 
-langchain-google-genai 
-python-dotenv 
-pypdf
+pandas
+sentence-transformers
+torch
